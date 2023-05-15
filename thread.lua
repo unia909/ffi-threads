@@ -17,7 +17,7 @@ ffi.cdef [[
     typedef unsigned short WORD;
     typedef unsigned int DWORD;
 
-    typedef DWORD (*LPTHREAD_START_ROUTINE)(void*);
+    typedef DWORD (*__stdcall LPTHREAD_START_ROUTINE)(void*);
 
     DWORD GetCurrentThreadId();
     void* CreateThread(void*, size_t, LPTHREAD_START_ROUTINE, void*, DWORD, DWORD*);
@@ -67,7 +67,7 @@ local thread_t = ffi.metatype("_lua_Thread", {
     }
 })
 
---[[ Compiled with MinGW 64-bit
+--[[
 DWORD WINAPI foo(void *param) {
     struct call_data *call_data = (struct call_data*)param;
     call_data->f(call_data->param, 0, 0, 0);
@@ -77,7 +77,17 @@ DWORD WINAPI foo(void *param) {
     return 0;
 }
 ]]
-local x64_bootstrap = "\x55\x48\x89\xE5\x48\x83\xEC\x30\x48\x89\x4D\x10\x48\x8B\x45\x10\x48\x89\x45\xF8\x48\x8B\x45\xF8\x4C\x8B\x10\x48\x8B\x45\xF8\x48\x8B\x40\x08\x41\xB9\x00\x00\x00\x00\x41\xB8\x00\x00\x00\x00\xBA\x00\x00\x00\x00\x48\x89\xC1\x41\xFF\xD2\x48\x8B\x45\xF8\x48\x8B\x40\x10\x48\x85\xC0\x74\x0E\x48\x8B\x45\xF8\x48\x8B\x40\x10\x48\x8B\x4D\x10\xFF\xD0\xB8\x00\x00\x00\x00\xC9\xC3"
+if jit.os ~= "Windows" then
+    error("unsupported operating system")
+end
+local bootstrap
+if jit.arch == "x86" then
+    bootstrap = "\x55\x89\xE5\x83\xEC\x18\x8B\x45\x08\x89\x45\xF4\x8B\x00\x8B\x55\xF4\x8B\x52\x04\x6A\x00\x6A\x00\x6A\x00\x52\xFF\xD0\x83\xC4\x10\x8B\x45\xF4\x8B\x40\x08\x85\xC0\x74\x11\x8B\x45\xF4\x8B\x40\x08\x83\xEC\x0C\xFF\x75\x08\xFF\xD0\x83\xC4\x10\xB8\x00\x00\x00\x00\xC9\xC2\x04\x00"
+elseif jit.arch == "x64" then
+    bootstrap = "\x55\x48\x89\xE5\x48\x83\xEC\x30\x48\x89\x4D\x10\x48\x8B\x45\x10\x48\x89\x45\xF8\x48\x8B\x45\xF8\x4C\x8B\x10\x48\x8B\x45\xF8\x48\x8B\x40\x08\x41\xB9\x00\x00\x00\x00\x41\xB8\x00\x00\x00\x00\xBA\x00\x00\x00\x00\x48\x89\xC1\x41\xFF\xD2\x48\x8B\x45\xF8\x48\x8B\x40\x10\x48\x85\xC0\x74\x0E\x48\x8B\x45\xF8\x48\x8B\x40\x10\x48\x8B\x4D\x10\xFF\xD0\xB8\x00\x00\x00\x00\xC9\xC3"
+else
+    print("unsupported architecture")
+end
 
 local function allocExecutableBuffer(data)
     local system_info = ffi.new("SYSTEM_INFO")
@@ -92,7 +102,7 @@ local function allocExecutableBuffer(data)
     return buffer
 end
 
-local x64_bootstrap_executable = ffi.cast("LPTHREAD_START_ROUTINE", allocExecutableBuffer(x64_bootstrap))
+local bootstrap_executable = ffi.cast("LPTHREAD_START_ROUTINE", allocExecutableBuffer(bootstrap))
 
 return {
     new = function(code)
@@ -109,7 +119,7 @@ return {
         data[0].f = C.lua_pcall
         data[0].param = L
         data[0].free = C.free
-        local hThread = C.CreateThread(nil, 0, x64_bootstrap_executable, data, 0, nil)
+        local hThread = C.CreateThread(nil, 0, bootstrap_executable, data, 0, nil)
 
         return thread_t(L, hThread)
     end
